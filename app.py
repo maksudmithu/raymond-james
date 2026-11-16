@@ -69,6 +69,7 @@ US_STATES = {
     "WY": "Wyoming",
 }
 
+# A থেকে Z পর্যন্ত সমস্ত অর্থবহ ৩-অক্ষরের মাস্টার টোকেন লিস্ট
 RAW_TOKENS = [
     "ada",
     "ade",
@@ -2974,11 +2975,15 @@ def fetch_token(token, state_code):
   return token, advisors
 
 
-# Streamlit Web UI
-st.title("🏛️ Raymond James Advisor Extractor")
+# Streamlit Web UI & Live Feed Setup
+st.set_page_config(
+    page_title="Raymond James Live Extractor", page_icon="🏛️", layout="wide"
+)
+
+st.title("🏛️ Raymond James Live Financial Advisor Extractor")
 st.write(
-    "Select a U.S. State and click **Start Scraping** to extract data"
-    " seamlessly."
+    "Select a U.S. state and watch the live data streaming in real-time as"
+    " tokens are processed."
 )
 
 selected_state_name = st.selectbox(
@@ -2988,11 +2993,25 @@ state_code = [
     code for code, name in US_STATES.items() if name == selected_state_name
 ][0]
 
-if st.button("Start Scraping"):
+if st.button("🚀 Start Live Scraping"):
   unique_advisors = {}
-  total = len(MASTER_TOKENS)
+  total_tokens = len(MASTER_TOKENS)
+
   progress_bar = st.progress(0)
   status_text = st.empty()
+
+  # লাইভ ডেটা প্রিভিউ দেখানোর জন্য দুটি সেকশন
+  col1, col2 = st.columns(2)
+  with col1:
+    st.subheader("📊 Live Stats")
+    stat_placeholder = st.empty()
+  with col2:
+    st.subheader("⚡ Live Token Feed")
+    feed_placeholder = st.empty()
+
+  st.markdown("---")
+  st.subheader("📋 Real-Time Extracted Advisors Table")
+  table_placeholder = st.empty()
 
   completed = 0
   with ThreadPoolExecutor(max_workers=10) as executor:
@@ -3002,27 +3021,62 @@ if st.button("Start Scraping"):
 
     for f in as_completed(futures):
       completed += 1
-      _, res_list = f.result()
-      for adv in res_list:
-        if adv["Advisor ID"] not in unique_advisors:
-          unique_advisors[adv["Advisor ID"]] = adv
+      token, res_list = f.result()
 
-      pct = completed / total
+      new_added = 0
+      for adv in res_list:
+        adv_id = adv["Advisor ID"]
+        if adv_id not in unique_advisors:
+          unique_advisors[adv_id] = adv
+          new_added += 1
+
+      # প্রোগ্রেস ও স্ট্যাটাস আপডেট
+      pct = completed / total_tokens
       progress_bar.progress(pct)
       status_text.text(
-          f"Progress: {completed}/{total} tokens processed | Unique Advisors:"
-          f" {len(unique_advisors)}"
+          f"Progress: {completed}/{total_tokens} Tokens Scanned"
+          f" ({round(pct*100, 1)}%)"
       )
 
+      stat_placeholder.markdown(f"""
+                * **Total Unique Advisors Found:** `{len(unique_advisors)}`
+                * **Current Status:** Scanning token `'{token}'` (+{new_added} new)
+                """)
+      feed_placeholder.code(
+          f"Token: '{token}' processed successfully. Found {len(res_list)}"
+          f" records."
+      )
+
+      # লাইভ টেবিল রিফ্রেশ করা
+      if unique_advisors:
+        df_live = pd.DataFrame(list(unique_advisors.values()))
+        table_placeholder.dataframe(
+            df_live[
+                [
+                    "Advisor ID",
+                    "Name",
+                    "Title",
+                    "City",
+                    "State",
+                    "Phone",
+                    "Email",
+                ]
+            ],
+            use_container_width=True,
+        )
+
   if unique_advisors:
-    df = pd.DataFrame(list(unique_advisors.values()))
     st.success(
-        f"Successfully extracted {len(unique_advisors)} unique advisors!"
+        f"🎉 Scraping Completed! Total {len(unique_advisors)} unique advisors"
+        f" extracted for {selected_state_name}."
+    )
+    df_final = pd.DataFrame(list(unique_advisors.values()))
+    csv_data = df_final.to_csv(index=False, encoding="utf-8-sig").encode(
+        "utf-8-sig"
     )
 
-    csv_data = df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
     st.download_button(
-        label=f"📥 Download {state_code} Advisors CSV",
+        label=f"📥 Download Full {state_code} Advisors CSV File",
         data=csv_data,
         file_name=f"raymond_james_advisors_{state_code}.csv",
         mime="text/csv",
