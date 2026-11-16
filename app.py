@@ -1,20 +1,35 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import random
+import time
 import streamlit as st
 from curl_cffi import requests
 import pandas as pd
 
 API_URL = "https://www.raymondjames.com/dotcom/api/searchadvisorsbynamev2/"
 
-HEADERS = {
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Accept-Language": "en-US,en;q=0.9",
-    "User-Agent": (
+# বিভিন্ন জনপ্রিয় ব্রাউজারের লেটেস্ট ইউজার-এজেন্ট পুল (ফিঙ্গারপ্রিন্ট রোটেশনের জন্য)
+USER_AGENTS = [
+    (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
-        " like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        " like Gecko) Chrome/122.0.0.0 Safari/537.36"
     ),
-    "Referer": "https://www.raymondjames.com/find-an-advisor",
-    "X-Requested-With": "XMLHttpRequest",
-}
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"
+        " (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15"
+    ),
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101"
+        " Firefox/123.0"
+    ),
+    (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)"
+        " Chrome/121.0.0.0 Safari/537.36"
+    ),
+    (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
+        " like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.2210.91"
+    ),
+]
 
 US_STATES = {
     "AL": "Alabama",
@@ -69,7 +84,6 @@ US_STATES = {
     "WY": "Wyoming",
 }
 
-# A থেকে Z পর্যন্ত সমস্ত অর্থবহ ৩-অক্ষরের মাস্টার টোকেন লিস্ট
 RAW_TOKENS = [
     "ada",
     "ade",
@@ -2918,17 +2932,37 @@ MASTER_TOKENS = sorted(list(set(RAW_TOKENS)))
 
 def fetch_token(token, state_code):
   advisors, page, total = [], 1, 1
+
+  # প্রক্সি কনফিগারেশন (যদি প্রক্সি ব্যবহার করতে চান তবে নিচে প্রক্সি ইউআরএল দিন)
+  # উদাহরণ: proxies = {"http": "http://user:pass@ip:port", "https": "http://user:pass@ip:port"}
+  proxies = None
+
   with requests.Session(impersonate="chrome120") as s:
     while page <= total:
       try:
+        # রোট্রেটিং হেডার ও ইউজার-এজেন্ট রেন্ডমাইজেশন
+        headers = {
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "en-US,en;q=0.9",
+            "User-Agent": random.choice(USER_AGENTS),
+            "Referer": "https://www.raymondjames.com/find-an-advisor",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+
+        # র্যান্ডম থ্রোটলিং ও ডিলে (বট ডিটেকশন এড়াতে)
+        time.sleep(random.uniform(1.0, 2.5))
+
         res = s.get(
             API_URL,
             params={"sort": "relevant", "name": token, "page": str(page)},
-            headers=HEADERS,
-            timeout=10,
+            headers=headers,
+            proxies=proxies,
+            timeout=12,
         )
+
         if res.status_code != 200:
           break
+
         data = res.json()
         total, results = data.get("totalPages", 1), data.get("results", [])
         if not results:
@@ -2975,15 +3009,15 @@ def fetch_token(token, state_code):
   return token, advisors
 
 
-# Streamlit Web UI & Live Feed Setup
+# Streamlit Web UI Setup
 st.set_page_config(
-    page_title="Raymond James Live Extractor", page_icon="🏛️", layout="wide"
+    page_title="Raymond James Advisor Extractor", page_icon="🏛️", layout="wide"
 )
 
-st.title("🏛️ Raymond James Live Financial Advisor Extractor")
+st.title("🏛️ Raymond James Financial Advisor Extractor")
 st.write(
-    "Select a U.S. state and watch the live data streaming in real-time as"
-    " tokens are processed."
+    "Select a U.S. State below and start extracting verified advisor details in"
+    " real-time."
 )
 
 selected_state_name = st.selectbox(
@@ -3000,85 +3034,89 @@ if st.button("🚀 Start Live Scraping"):
   progress_bar = st.progress(0)
   status_text = st.empty()
 
-  # লাইভ ডেটা প্রিভিউ দেখানোর জন্য দুটি সেকশন
-  col1, col2 = st.columns(2)
-  with col1:
-    st.subheader("📊 Live Stats")
-    stat_placeholder = st.empty()
-  with col2:
-    st.subheader("⚡ Live Token Feed")
-    feed_placeholder = st.empty()
-
   st.markdown("---")
-  st.subheader("📋 Real-Time Extracted Advisors Table")
+  st.subheader("📊 Total Advisors Found (Real-Time)")
+  stat_placeholder = st.empty()
+
+  st.subheader("⚡ Real-Time Advisor Table")
   table_placeholder = st.empty()
 
   completed = 0
-  with ThreadPoolExecutor(max_workers=10) as executor:
+  # থ্রেড সংখ্যা নিরাপদ রাখা হয়েছে যাতে ক্লাউডফ্লেয়ার ট্রিগার না হয়
+  with ThreadPoolExecutor(max_workers=6) as executor:
     futures = {
         executor.submit(fetch_token, t, state_code): t for t in MASTER_TOKENS
     }
 
     for f in as_completed(futures):
       completed += 1
-      token, res_list = f.result()
+      _, res_list = f.result()
 
-      new_added = 0
       for adv in res_list:
         adv_id = adv["Advisor ID"]
         if adv_id not in unique_advisors:
           unique_advisors[adv_id] = adv
-          new_added += 1
 
-      # প্রোগ্রেস ও স্ট্যাটাস আপডেট
+      # টোকেন বা কাউন্ট সংক্রান্ত কোনো টেকনিক্যাল তথ্য স্ক্রিনে দেখানো হচ্ছে না
       pct = completed / total_tokens
       progress_bar.progress(pct)
       status_text.text(
-          f"Progress: {completed}/{total_tokens} Tokens Scanned"
-          f" ({round(pct*100, 1)}%)"
+          f"Processing data securely... Please wait ({round(pct * 100, 1)}%"
+          " completed)"
       )
 
-      stat_placeholder.markdown(f"""
-                * **Total Unique Advisors Found:** `{len(unique_advisors)}`
-                * **Current Status:** Scanning token `'{token}'` (+{new_added} new)
-                """)
-      feed_placeholder.code(
-          f"Token: '{token}' processed successfully. Found {len(res_list)}"
-          f" records."
+      stat_placeholder.markdown(
+          f"### 👥 Unique Advisors Discovered: `{len(unique_advisors)}`"
       )
 
-      # লাইভ টেবিল রিফ্রেশ করা
+      # রিয়েল-টাইম লাইভ টেবিল আপডেট এবং কলাম সিলেক্টর
       if unique_advisors:
         df_live = pd.DataFrame(list(unique_advisors.values()))
-        table_placeholder.dataframe(
-            df_live[
-                [
-                    "Advisor ID",
-                    "Name",
-                    "Title",
-                    "City",
-                    "State",
-                    "Phone",
-                    "Email",
-                ]
-            ],
-            use_container_width=True,
+
+        all_columns = list(df_live.columns)
+        default_cols = [
+            "Advisor ID",
+            "Name",
+            "Title",
+            "City",
+            "State",
+            "Phone",
+            "Email",
+        ]
+
+        selected_columns = st.multiselect(
+            "Select Columns to Display in Real-Time Table:",
+            all_columns,
+            default=[c for c in default_cols if c in all_columns],
         )
 
+        if selected_columns:
+          table_placeholder.dataframe(
+              df_live[selected_columns], use_container_width=True
+          )
+        else:
+          table_placeholder.dataframe(df_live, use_container_width=True)
+
+  # স্ক্র্রাপিং কমপ্লিট হওয়ার পর সকল কলামসহ ফাইল ডাউনলোড অপশন
   if unique_advisors:
     st.success(
-        f"🎉 Scraping Completed! Total {len(unique_advisors)} unique advisors"
-        f" extracted for {selected_state_name}."
+        f"🎉 Scraping Successfully Completed! Total {len(unique_advisors)} unique"
+        f" advisors found for {selected_state_name}."
     )
     df_final = pd.DataFrame(list(unique_advisors.values()))
+
+    # সমস্ত কলাম সহ ফুল ডেটা ফাইল ডাউনলোড
     csv_data = df_final.to_csv(index=False, encoding="utf-8-sig").encode(
         "utf-8-sig"
     )
 
     st.download_button(
-        label=f"📥 Download Full {state_code} Advisors CSV File",
+        label=(
+            f"📥 Download Full {selected_state_name} Advisors Dataset (All"
+            " Columns CSV)"
+        ),
         data=csv_data,
-        file_name=f"raymond_james_advisors_{state_code}.csv",
+        file_name=f"raymond_james_advisors_{state_code}_full.csv",
         mime="text/csv",
     )
   else:
