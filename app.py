@@ -69,7 +69,7 @@ US_STATES = {
     "WY": "Wyoming",
 }
 
-# A থেকে Z পর্যন্ত সমস্ত অর্থবহ ৩-অক্ষরের মাস্টার টোকেন লিস্ট
+# টোকেনগুলো পাশাপাশি অ্যারে আকারে রাখা হয়েছে কোড ছোট রাখার জন্য
 RAW_TOKENS = [
     "ada",
     "ade",
@@ -2967,7 +2967,7 @@ def fetch_token(token, state_code):
                   "City": addr.get("city") or "",
                   "State": state_code.upper(),
                   "Zip": addr.get("zip") or "",
-                  "Subsidiary": item.get("subsidiary") or "",
+                  "Subsidiary": item.get("Subsidiary") or "",
               })
         page += 1
       except:
@@ -2983,7 +2983,7 @@ st.set_page_config(
 st.title("🏛️ Raymond James Live Financial Advisor Extractor")
 st.write(
     "Select a U.S. state and watch the live data streaming in real-time as"
-    " tokens are processed."
+    " all tokens are searched through completely."
 )
 
 selected_state_name = st.selectbox(
@@ -3000,7 +3000,6 @@ if st.button("🚀 Start Live Scraping"):
   progress_bar = st.progress(0)
   status_text = st.empty()
 
-  # লাইভ ডেটা প্রিভিউ দেখানোর জন্য দুটি সেকশন
   col1, col2 = st.columns(2)
   with col1:
     st.subheader("📊 Live Stats")
@@ -3030,7 +3029,7 @@ if st.button("🚀 Start Live Scraping"):
           unique_advisors[adv_id] = adv
           new_added += 1
 
-      # প্রোগ্রেস ও স্ট্যাটাস আপডেট
+      # ১০০% পর্যন্ত সার্চ চলতে থাকবে, কোনো ৫০% বা থামার শর্ত নেই
       pct = completed / total_tokens
       progress_bar.progress(pct)
       status_text.text(
@@ -3047,23 +3046,33 @@ if st.button("🚀 Start Live Scraping"):
           f" records."
       )
 
-      # লাইভ টেবিল রিফ্রেশ করা
+      # লাইভ টেবিল রিফ্রেশ এবং কলাম সিলেক্টর (ভিউ অপশন)
       if unique_advisors:
         df_live = pd.DataFrame(list(unique_advisors.values()))
-        table_placeholder.dataframe(
-            df_live[
-                [
-                    "Advisor ID",
-                    "Name",
-                    "Title",
-                    "City",
-                    "State",
-                    "Phone",
-                    "Email",
-                ]
-            ],
-            use_container_width=True,
+
+        all_columns = list(df_live.columns)
+        default_cols = [
+            "Advisor ID",
+            "Name",
+            "Title",
+            "City",
+            "State",
+            "Phone",
+            "Email",
+            "Profile URL",
+        ]
+
+        selected_columns = st.multiselect(
+            "👁️ Column Selector (View Options):",
+            all_columns,
+            default=[c for c in default_cols if c in all_columns],
+            key=f"col_select_{completed}",
         )
+
+        display_df = (
+            df_live[selected_columns] if selected_columns else df_live
+        )
+        table_placeholder.dataframe(display_df, use_container_width=True)
 
   if unique_advisors:
     st.success(
