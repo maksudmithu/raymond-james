@@ -69,7 +69,6 @@ US_STATES = {
     "WY": "Wyoming",
 }
 
-# টোকেনগুলো পাশাপাশি অ্যারে আকারে রাখা হয়েছে কোড ছোট রাখার জন্য
 RAW_TOKENS = [
     "ada",
     "ade",
@@ -2967,7 +2966,7 @@ def fetch_token(token, state_code):
                   "City": addr.get("city") or "",
                   "State": state_code.upper(),
                   "Zip": addr.get("zip") or "",
-                  "Subsidiary": item.get("Subsidiary") or "",
+                  "Subsidiary": item.get("subsidiary") or "",
               })
         page += 1
       except:
@@ -3029,7 +3028,6 @@ if st.button("🚀 Start Live Scraping"):
           unique_advisors[adv_id] = adv
           new_added += 1
 
-      # ১০০% পর্যন্ত সার্চ চলতে থাকবে, কোনো ৫০% বা থামার শর্ত নেই
       pct = completed / total_tokens
       progress_bar.progress(pct)
       status_text.text(
@@ -3046,11 +3044,10 @@ if st.button("🚀 Start Live Scraping"):
           f" records."
       )
 
-      # লাইভ টেবিল রিফ্রেশ এবং কলাম সিলেক্টর (ভিউ অপশন)
       if unique_advisors:
         df_live = pd.DataFrame(list(unique_advisors.values()))
 
-        all_columns = list(df_live.columns)
+        # ডিফল্ট কলামগুলো সরাসরি টেবিলে দেখানো হচ্ছে (কোনো কলাম সিলেক্টর বা ভিউ অপশন নেই)
         default_cols = [
             "Advisor ID",
             "Name",
@@ -3061,18 +3058,11 @@ if st.button("🚀 Start Live Scraping"):
             "Email",
             "Profile URL",
         ]
+        available_cols = [c for c in default_cols if c in df_live.columns]
 
-        selected_columns = st.multiselect(
-            "👁️ Column Selector (View Options):",
-            all_columns,
-            default=[c for c in default_cols if c in all_columns],
-            key=f"col_select_{completed}",
+        table_placeholder.dataframe(
+            df_live[available_cols], use_container_width=True
         )
-
-        display_df = (
-            df_live[selected_columns] if selected_columns else df_live
-        )
-        table_placeholder.dataframe(display_df, use_container_width=True)
 
   if unique_advisors:
     st.success(
